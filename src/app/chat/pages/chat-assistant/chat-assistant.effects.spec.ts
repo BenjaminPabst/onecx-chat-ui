@@ -776,6 +776,78 @@ describe('ChatAssistantEffects', () => {
     })
   })
 
+  describe('awaitAssistantResponseTimeout$', () => {
+    beforeEach(() => {
+      jest.useFakeTimers()
+    })
+
+    afterEach(() => {
+      jest.useRealTimers()
+    })
+
+    it('should dispatch awaitAssistantResponseTimedOut after the timeout elapses for an AI chat with no response', (done) => {
+      store.overrideSelector(chatAssistantSelectors.selectCurrentChat, mockChat)
+      store.refreshState()
+
+      // Use a non-completing source so the race's inner action stream stays open and the timer can win,
+      // mirroring a real Actions stream that does not complete.
+      const actionsSubject = new Subject<any>()
+      actions$ = actionsSubject.asObservable()
+
+      effects.awaitAssistantResponseTimeout$.subscribe({
+        next: (result) => {
+          expect(result).toEqual(ChatAssistantActions.awaitAssistantResponseTimedOut())
+          done()
+        }
+      })
+
+      actionsSubject.next(ChatAssistantActions.messageSent({ message: 'Hello' }))
+
+      jest.advanceTimersByTime(30000)
+    })
+
+    it('should not dispatch awaitAssistantResponseTimedOut when messagesLoaded arrives before the timeout', (done) => {
+      store.overrideSelector(chatAssistantSelectors.selectCurrentChat, mockChat)
+      store.refreshState()
+
+      const actionsSubject = new Subject<any>()
+      actions$ = actionsSubject.asObservable()
+
+      effects.awaitAssistantResponseTimeout$.pipe(take(1)).subscribe({
+        next: () => {
+          fail('Should not emit')
+        },
+        complete: () => {
+          done()
+        }
+      })
+
+      actionsSubject.next(ChatAssistantActions.messageSent({ message: 'Hello' }))
+      actionsSubject.next(ChatAssistantActions.messagesLoaded({ messages: mockMessages }))
+      actionsSubject.complete()
+
+      jest.advanceTimersByTime(30000)
+    })
+
+    it('should not dispatch awaitAssistantResponseTimedOut for chat types other than AiChat', (done) => {
+      store.overrideSelector(chatAssistantSelectors.selectCurrentChat, { ...mockChat, type: ChatType.HumanDirectChat })
+      store.refreshState()
+
+      actions$ = of(ChatAssistantActions.messageSent({ message: 'Hello' }))
+
+      effects.awaitAssistantResponseTimeout$.pipe(take(1)).subscribe({
+        next: () => {
+          fail('Should not emit')
+        },
+        complete: () => {
+          done()
+        }
+      })
+
+      jest.advanceTimersByTime(30000)
+    })
+  })
+
   describe('deleteChat$', () => {
     beforeEach(() => {
       chatInternalService.deleteChat.mockReturnValue(of({}))
